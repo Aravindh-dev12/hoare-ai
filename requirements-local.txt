@@ -1,0 +1,7 @@
+-r requirements-core.txt
+torch>=2.7
+torchvision>=0.22
+accelerate>=1.8
+pillow>=11
+safetensors>=0.6
+transformers[serving] @ git+https://github.com/huggingface/transformers.git@main
