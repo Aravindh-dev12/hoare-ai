@@ -153,14 +153,21 @@ def _read_git_file(root: Path, ref: str, rel: str, max_bytes: int) -> str | None
 
 def _deleted_patch(root: Path, rel: str, mode: str, base: str, compare: str) -> str:
     if mode == "staged":
-        args = ("diff", "--cached", "--", rel)
-    elif mode == "compare":
-        args = ("diff", f"{base}...{compare}", "--", rel)
-    elif mode == "unstaged":
-        args = ("diff", "--", rel)
-    else:
-        args = ("diff", f"{base}...HEAD", "--", rel)
-    return _git(root, *args, check=False)[:300_000]
+        return _git(root, "diff", "--cached", "--", rel, check=False)[:300_000]
+    if mode == "compare":
+        return _git(root, "diff", f"{base}...{compare}", "--", rel, check=False)[:300_000]
+    if mode == "unstaged":
+        return _git(root, "diff", "--", rel, check=False)[:300_000]
+
+    # Default work mode merges committed branch, index and working-tree patches.
+    # This matters for files deleted locally but not yet staged: there is no
+    # worktree file to read, but the deletion still belongs to the review.
+    parts = [
+        _git(root, "diff", f"{base}...HEAD", "--", rel, check=False),
+        _git(root, "diff", "--cached", "--", rel, check=False),
+        _git(root, "diff", "--", rel, check=False),
+    ]
+    return "\n".join(part for part in parts if part.strip())[:300_000]
 
 
 def _names(root: Path, *args: str) -> list[str]:
