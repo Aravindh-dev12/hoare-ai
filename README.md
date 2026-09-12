@@ -15,123 +15,204 @@ hf_oauth_expiration_minutes: 480
 
 **AI writes code. Hoare AI decides what deserves to be trusted.**
 
-Hoare AI is an always-on, multi-language code quality reviewer for engineering teams shipping human- and AI-generated code. It combines change comprehension, architecture-aware review, validation planning, deterministic quality scoring, and historical quality memory.
+Hoare AI is a local-first, multi-language code review and quality-memory system for engineering teams shipping human- and AI-generated code. The primary workflow is the **`hoare` CLI**; the Gradio application is a companion web dashboard for interactive submissions, history and hosted demos.
 
-The default open model is **Qwen/Qwen3.5-4B**. Production deployments should serve Qwen through vLLM/SGLang/Transformers Serve and let Hoare AI call the OpenAI-compatible endpoint. A direct Transformers backend is also included for a model already downloaded on the same machine.
+The default open model is **Qwen/Qwen3.5-4B**. Production deployments should serve Qwen behind a vLLM/SGLang/OpenAI-compatible endpoint so model inference scales separately from Hoare's review/API layer. A direct Transformers backend is included for a model already downloaded on the same machine.
 
-## What Hoare AI does
+## Why Hoare is different
 
-- Reviews pasted code, uploaded source files, and GitHub PR diffs.
-- Detects security, correctness, performance, reliability, maintainability, architecture, readability, and testing risks.
-- Groups changes into logical **review chapters** rather than reviewing files in isolation.
-- Builds a lightweight dependency/architecture map.
-- Generates focused validation scenarios without executing untrusted submissions.
-- Produces a deterministic **1–10 quality score** from evidence-backed findings.
-- Imports historical CSV rules using `id,type,description` and retrieves only relevant rules for each review.
-- Stores structured review history so recurring engineering patterns influence future reviews.
-- Redacts secret-like values before model analysis and does not persist raw source by default.
+Most reviewers answer one question: **“What is wrong with this PR?”**
 
-## Architecture
+Hoare adds two more:
 
-```text
-HF OAuth / Cloud Run IAP
-          │
-          ▼
-     Hoare AI UI/API
-          │
- ┌────────┼──────────┐
- ▼        ▼          ▼
-Code   GitHub PR   CSV rules
- └────────┼──────────┘
-          ▼
- Safe ingestion + static analysis
-          │
-          ├────────► historical rule / review retrieval
-          │
-          ▼
- Qwen3.5-4B inference layer
- (vLLM/SGLang API or local Transformers)
-          │
-          ▼
- Structured findings + chapters + architecture + validation
-          │
-          ▼
- Deterministic risk / 1–10 quality scoring
-          │
-     ┌────┴─────┐
-     ▼          ▼
-  SQLite     BigQuery
-     └── quality memory ──► future reviews
+- **“What code state did we actually review?”** Every local session is pinned to a base SHA and a head SHA or dirty-worktree fingerprint.
+- **“Is this team repeating something that failed before?”** Historical rules and recurring findings are retrieved into future reviews, while scores and issue patterns become longitudinal quality data.
+
+The resulting review is not a disposable chat response. It is a structured quality record containing findings, logical review chapters, architecture context, validation guidance, model identity, risk and a deterministic 1–10 score.
+
+## Local quickstart
+
+```bash
+git clone https://github.com/Aravindh-dev12/hoare-ai.git
+cd hoare-ai
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+
+hoare --version
+hoare doctor
 ```
 
-## Recommended production inference
-
-Qwen3.5 is designed to be served through OpenAI-compatible APIs. For production/high-throughput review, run the downloaded model with vLLM and keep Hoare AI as a stateless review/API layer.
+Point Hoare at your downloaded Qwen model using the recommended vLLM topology:
 
 ```bash
 export HOARE_QWEN_MODEL_PATH=/absolute/path/to/Qwen3.5-4B
 bash deploy/start-qwen-local.sh
 ```
 
-In another shell:
+In another terminal:
 
 ```bash
 export HOARE_LLM_BACKEND=openai
 export HOARE_LLM_MODEL=Qwen/Qwen3.5-4B
 export HOARE_LLM_BASE_URL=http://127.0.0.1:8000/v1
 export HOARE_LLM_API_KEY=EMPTY
-export HOARE_ALLOW_ANONYMOUS=true
-python app.py
+
+cd /path/to/your/project
+hoare init
+hoare review
 ```
 
-Or run both containers:
+Useful scopes:
 
 ```bash
-export HOARE_QWEN_MODEL_PATH=/absolute/path/to/Qwen3.5-4B
-docker compose -f docker-compose.qwen.yml up --build
+hoare review --staged
+hoare review --unstaged
+hoare review --base origin/main --compare HEAD
+hoare review --instructions 'Focus on backward compatibility and auth boundaries.'
 ```
 
-## Direct local model mode
-
-If you do not want a model server, Hoare AI can lazy-load the downloaded model in-process:
+Explicitly validate behavior after review:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-local.txt
-export HOARE_LLM_BACKEND=transformers
-export HOARE_QWEN_MODEL_PATH=/absolute/path/to/Qwen3.5-4B
-export HOARE_LLM_MODEL=Qwen/Qwen3.5-4B
-export HOARE_ALLOW_ANONYMOUS=true
-python app.py
+hoare review --test-command 'pytest -q'
 ```
 
-The direct backend uses non-thinking/instruct generation for predictable structured code-review output. For production concurrency, prefer vLLM/SGLang instead of loading one model inside each web worker.
+Hoare **does not execute repository code by default**. A test/build command runs only when the engineer explicitly requests it with `--test-command` or `--run-tests`.
 
-## Hugging Face Space
+## CLI product surface
 
-The Space can run in two modes:
+```text
+hoare init                         repository config / ignore / guidance
+hoare review                       review local Git changes
+hoare review --staged              review the Git index only
+hoare review --unstaged            review worktree + untracked changes
+hoare review --base A --compare B  review two pinned revisions
+hoare pr 42 --repo owner/repo      review a GitHub PR without checkout
+hoare history                      list local quality sessions
+hoare show latest                  inspect the latest saved review
+hoare show latest --architecture   print the Mermaid dependency graph
+hoare doctor                       verify model/runtime configuration
+hoare serve                        launch the companion web dashboard
+```
 
-1. **Recommended:** set `HOARE_LLM_BASE_URL` as a Space Secret/Variable pointing to a Qwen3.5-4B inference service.
-2. **Single-Space demo:** let the Space load `Qwen/Qwen3.5-4B` directly from the Hub. The app auto-detects Spaces; GPU hardware is strongly recommended.
-
-Keep `hf_oauth: true` so every review history is tied to the authenticated HF user.
-
-## GCP deployment
-
-Deploy the Hoare UI/API on **Cloud Run**, protect it with IAP, and persist quality memory in **BigQuery**.
+Outputs are available as terminal text, Markdown, JSON or SARIF:
 
 ```bash
-gcloud builds submit --tag REGION-docker.pkg.dev/PROJECT/hoare/hoare-ai
-gcloud run deploy hoare-ai \
-  --image REGION-docker.pkg.dev/PROJECT/hoare/hoare-ai \
-  --region REGION \
-  --set-env-vars HOARE_LLM_BACKEND=openai,HOARE_LLM_MODEL=Qwen/Qwen3.5-4B,HOARE_LLM_BASE_URL=https://YOUR-QWEN-ENDPOINT/v1,HOARE_BIGQUERY_TABLE=PROJECT.hoare.reviews
+hoare review --format markdown -o review.md
+hoare review --format json -o review.json
+hoare review --format sarif -o hoare.sarif
+hoare review --fail-below 7.5
 ```
 
-For a production Qwen endpoint, use a dedicated GPU service. Hoare AI itself remains stateless and horizontally scalable on Cloud Run.
+See [`docs/CLI.md`](docs/CLI.md) for the full command reference.
+
+## What a review produces
+
+- Security, correctness, performance, reliability, maintainability, architecture, readability and testing findings.
+- Logical **review chapters** ordered as a human should read the dependency chain.
+- Change intent and architecture/data-flow notes.
+- A Mermaid dependency map.
+- A focused validation plan.
+- Relevant matches from historical review rules.
+- A deterministic **1–10 quality score**.
+- A pinned review session under `.hoare/reviews/<review-id>/`.
+- Optional explicit local test/build evidence.
+- SQLite history locally and optional BigQuery history in GCP.
+
+Raw source code is not written into review history/session artifacts.
+
+## Architecture
+
+```text
+                     ┌───────────────────────────┐
+                     │       Developer / CI      │
+                     └─────────────┬─────────────┘
+                                   │
+                     ┌─────────────▼─────────────┐
+                     │        hoare CLI          │
+                     │ Git / PR / config / gate  │
+                     └─────────────┬─────────────┘
+                                   │
+            ┌──────────────────────┼──────────────────────┐
+            │                      │                      │
+            ▼                      ▼                      ▼
+     Git change capture       Historical rules       Previous reviews
+ base/head/worktree pinning     CSV retrieval        recurring patterns
+            │                      │                      │
+            └──────────────┬───────┴──────────────┬───────┘
+                           ▼                      ▼
+                    Static analysis       Architecture context
+                           │                      │
+                           └──────────┬───────────┘
+                                      ▼
+                              Qwen3.5-4B
+                         vLLM API / Transformers
+                                      │
+                         ┌────────────┼─────────────┐
+                         ▼            ▼             ▼
+                      Findings     Chapters     Validation plan
+                         └────────────┼─────────────┘
+                                      ▼
+                           Deterministic score/risk
+                                      │
+                       ┌──────────────┼──────────────┐
+                       ▼              ▼              ▼
+                  .hoare session    SQLite        BigQuery
+                                      │
+                                      └──── quality memory ───► next review
+```
+
+Detailed component/data/security architecture is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## Design references
+
+Hoare uses public product ideas from modern AI-era review tools as architecture references while implementing its own review engine and data model:
+
+- **Stage** — local-first review and logical “chapters” instead of forcing humans through an arbitrary file order: <https://github.com/ReviewStage/stage-cli>
+- **Alchemize** — dependency-ordered review context and validation of affected workflows: <https://tryalchemize.com/>
+- **/dev/fast Review** — architecture-level understanding and reviews tied to exact code/version-control state: <https://github.com/devdotfast/review>
+
+Hoare's differentiating layer is **quality memory**: it combines the current code state with historical engineering rules and recurring review patterns, then stores the resulting structured quality record for future reviews.
+
+## Repository configuration
+
+Run:
+
+```bash
+hoare init
+```
+
+Hoare creates three optional files:
+
+```text
+.hoareinstructions   persistent project review guidance
+.hoareignore         generated/vendor files excluded from analysis
+hoare.toml           base ref, limits, validation command, score gate, extra rule CSVs
+```
+
+Example:
+
+```toml
+[review]
+base = "origin/main"
+language = "Auto"
+test_command = "pytest -q"
+max_files = 200
+max_file_bytes = 300000
+
+[quality]
+fail_below = 7.5
+
+[data]
+rules_files = ["engineering-rules.csv"]
+```
+
+A configured test command is not run automatically; invoke `hoare review --run-tests` to explicitly execute it.
 
 ## Historical data
+
+The assessment CSV schema is supported directly:
 
 ```csv
 id,type,description
@@ -140,29 +221,102 @@ id,type,description
 3,security,Never interpolate raw user input directly into SQL queries
 ```
 
-Hoare AI parses, de-duplicates, ranks, and retrieves relevant historical rules rather than placing the entire dataset into every prompt.
+Hoare parses, de-duplicates and retrieves relevant rules instead of placing the entire dataset in every model prompt. Previous structured findings are also summarized into recurring user/team patterns.
 
-## Quality score
+## Quality scoring
 
-The model never chooses the final score. Application code computes it consistently:
+Qwen does **not** choose the final numeric score. Application code computes it from deduplicated findings:
 
-- Critical: -2.0 × confidence
-- High: -1.0 × confidence
-- Medium: -0.4 × confidence
-- Low: -0.15 × confidence
+- Critical: `-2.0 × confidence`
+- High: `-1.0 × confidence`
+- Medium: `-0.4 × confidence`
+- Low: `-0.15 × confidence`
 - Info: no penalty
 
-Any critical finding caps the score at 5.0. Scores are clamped to 1.0–10.0.
+Any critical finding caps the score at 5.0. Scores are clamped to 1.0–10.0. Explicit local test/build failures become high-severity findings and flow through the same scoring model.
+
+## Qwen production inference
+
+Recommended topology:
+
+```text
+Hoare CLI / Web / Cloud Run
+            │
+            │ OpenAI-compatible HTTP
+            ▼
+       vLLM / SGLang
+            │
+            ▼
+       Qwen3.5-4B GPU
+```
+
+Start the downloaded model locally:
+
+```bash
+export HOARE_QWEN_MODEL_PATH=/absolute/path/to/Qwen3.5-4B
+bash deploy/start-qwen-local.sh
+```
+
+Or start Qwen + Hoare together:
+
+```bash
+export HOARE_QWEN_MODEL_PATH=/absolute/path/to/Qwen3.5-4B
+docker compose -f docker-compose.qwen.yml up --build
+```
+
+### Direct model mode
+
+For a single-machine development environment:
+
+```bash
+pip install -e '.[local-model]'
+export HOARE_LLM_BACKEND=transformers
+export HOARE_QWEN_MODEL_PATH=/absolute/path/to/Qwen3.5-4B
+hoare review
+```
+
+For concurrency, prefer a separate model server rather than loading one 4B model into every web worker.
+
+## Web dashboard / Hugging Face Space
+
+The existing Gradio app remains available:
+
+```bash
+hoare serve
+# or
+python app.py
+```
+
+On Hugging Face, keep `hf_oauth: true` so hosted histories can be associated with authenticated users. For production, point the Space at a dedicated Qwen inference endpoint instead of forcing a CPU Space to host the 4B weights itself.
+
+## GCP deployment
+
+A production GCP topology uses:
+
+- **Cloud Run** for the stateless Hoare UI/API.
+- **IAP** for authenticated access.
+- **BigQuery** for persistent quality history and longitudinal analytics.
+- A separate GPU inference endpoint for Qwen3.5-4B.
+
+```bash
+gcloud builds submit --tag REGION-docker.pkg.dev/PROJECT/hoare/hoare-ai
+
+gcloud run deploy hoare-ai \
+  --image REGION-docker.pkg.dev/PROJECT/hoare/hoare-ai \
+  --region REGION \
+  --set-env-vars HOARE_LLM_BACKEND=openai,HOARE_LLM_MODEL=Qwen/Qwen3.5-4B,HOARE_LLM_BASE_URL=https://YOUR-QWEN-ENDPOINT/v1,HOARE_BIGQUERY_TABLE=PROJECT.hoare.reviews
+```
 
 ## Security boundaries
 
-1. Code, diffs, comments, file names, and historical descriptions are **untrusted data** and cannot override reviewer instructions.
-2. Secret-like values are redacted before LLM inference.
-3. Submitted code is analyzed, never executed by the reviewer process.
-4. Upload types and sizes are bounded.
-5. Raw source is not stored in review history by default.
-6. HF OAuth / Cloud Run IAP separates user histories.
-7. Model endpoint keys are read from environment secrets and are never returned to the UI.
+1. Code, diffs, comments, file names and historical descriptions are untrusted model data.
+2. Secret-like values are redacted before model inference.
+3. The hosted reviewer does not execute submitted code.
+4. Local validation requires explicit engineer opt-in.
+5. File count/size and model-context ingestion are bounded.
+6. Raw source is not persisted in review history by default.
+7. HF OAuth / Cloud Run IAP separates hosted user histories.
+8. Model and GitHub credentials come from environment secrets and are never returned to the UI.
 
 ## Inference configuration
 
@@ -170,12 +324,13 @@ Any critical finding caps the score at 5.0. Scores are clamped to 1.0–10.0.
 |---|---|
 | `HOARE_LLM_BACKEND` | `auto`, `openai`, `transformers`, `gemini`, or `static` |
 | `HOARE_LLM_MODEL` | Defaults to `Qwen/Qwen3.5-4B` |
-| `HOARE_LLM_BASE_URL` | OpenAI-compatible Qwen endpoint, e.g. `http://localhost:8000/v1` |
+| `HOARE_LLM_BASE_URL` | OpenAI-compatible endpoint, e.g. `http://localhost:8000/v1` |
 | `HOARE_LLM_API_KEY` | Endpoint token; `EMPTY` for local vLLM |
 | `HOARE_QWEN_MODEL_PATH` | Local downloaded model directory |
 | `HOARE_LOAD_MODEL_FROM_HUB` | Allow direct model download from Hugging Face |
-| `HOARE_BIGQUERY_TABLE` | `project.dataset.table` for persistent quality history |
+| `HOARE_BIGQUERY_TABLE` | `project.dataset.table` for persistent hosted quality history |
+| `HOARE_USER_ID` | Optional stable local/CI user identifier |
 
 ## Why “Hoare”?
 
-The name nods to Tony Hoare and the idea that software quality should be reasoned about rather than guessed. Hoare AI is a quality and trust layer for an era where producing code is becoming cheap but validating it remains expensive.
+The name nods to Tony Hoare and the idea that software quality should be reasoned about rather than guessed. Hoare AI is designed as a quality and trust layer for an era where producing code is becoming cheap while validation and engineering judgment remain expensive.
