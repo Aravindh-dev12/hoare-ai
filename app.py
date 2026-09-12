@@ -7,7 +7,7 @@ from pathlib import Path
 import gradio as gr
 import pandas as pd
 
-from hoare.github_source import fetch_pr_files
+from hoare.github_source import fetch_pr_context
 from hoare.history import HistoryStore
 from hoare.inference import inference_status
 from hoare.reviewer import review_code
@@ -57,9 +57,9 @@ def _collect_files(code: str, uploaded, repo: str, pr_number: float | int | None
     if upload_files:
         source.append('upload')
     if repo and repo.strip() and pr_number:
-        pr_files = fetch_pr_files(repo.strip(), int(pr_number))
-        files.update(pr_files)
-        source.append(f'github:{repo.strip()}#{int(pr_number)}')
+        pr_context = fetch_pr_context(repo.strip(), int(pr_number))
+        files.update(pr_context.files)
+        source.append(pr_context.source)
     return files, '+'.join(source) or 'unknown'
 
 
@@ -80,7 +80,7 @@ def _run_review_for_user(code, language, uploaded, repo, pr_number, rules_state,
     store.save(review.model_dump())
 
     score_md = f'''<div class="score-card"><b>Quality score</b><br><span style="font-size:2rem;font-weight:750">{review.quality_score}/10</span><br><b>Risk:</b> {review.risk_level} · {review.language} · {review.file_count} file(s)<br><b>Model:</b> {review.model_name} · {review.model_backend}</div>'''
-    summary_md = f'### Review summary\n{review.summary}\n\n**Change intent:** {review.change_intent or "Not confidently inferred."}'
+    summary_md = f'### Review summary\n{review.summary}\n\n**Change intent:** {review.change_intent or "Not confidently inferred."}\n\n**Review source:** `{review.source}`'
 
     findings = pd.DataFrame([
         {
@@ -169,7 +169,7 @@ with gr.Blocks(title='Hoare AI', theme=gr.themes.Soft(), css=CSS) as demo:
                     uploaded = gr.File(label='Or upload source files', file_count='multiple', type='filepath')
                     language = gr.Dropdown(['Auto','Python','JavaScript','TypeScript','Java','Go','Rust','C','C++','C#','Ruby','PHP','Kotlin','Swift','SQL'], value='Auto', label='Primary language')
                 with gr.Column(scale=2):
-                    gr.Markdown('### GitHub PR (optional)\nLoad a public PR diff, or set `GITHUB_TOKEN` for private repositories.')
+                    gr.Markdown('### GitHub PR (optional)\nLoad a public PR diff, or set `GITHUB_TOKEN` for private repositories. PR reviews are pinned to the exact GitHub base/head SHAs.')
                     repo = gr.Textbox(label='Repository', placeholder='owner/repository')
                     pr_number = gr.Number(label='PR number', precision=0)
                     run = gr.Button('Run Hoare Review', variant='primary')
