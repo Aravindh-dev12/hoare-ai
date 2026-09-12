@@ -9,6 +9,7 @@ import pandas as pd
 
 from hoare.github_source import fetch_pr_files
 from hoare.history import HistoryStore
+from hoare.inference import inference_status
 from hoare.reviewer import review_code
 from hoare.rules import Rule, load_rules, parse_rules_csv
 from hoare.security import read_uploaded_files
@@ -16,6 +17,7 @@ from hoare.security import read_uploaded_files
 store = HistoryStore()
 BASE_RULES = load_rules()
 IS_HF_SPACE = bool(os.getenv('SPACE_ID') or os.getenv('OAUTH_CLIENT_ID'))
+MODEL_STATUS = inference_status()
 
 CSS = '''
 :root { --hoare-border: rgba(120,120,120,.22); }
@@ -77,7 +79,7 @@ def _run_review_for_user(code, language, uploaded, repo, pr_number, rules_state,
     review, graph = review_code(files, user_id, _rules_from_state(rules_state), patterns, language, source)
     store.save(review.model_dump())
 
-    score_md = f'''<div class="score-card"><b>Quality score</b><br><span style="font-size:2rem;font-weight:750">{review.quality_score}/10</span><br><b>Risk:</b> {review.risk_level} · {review.language} · {review.file_count} file(s)</div>'''
+    score_md = f'''<div class="score-card"><b>Quality score</b><br><span style="font-size:2rem;font-weight:750">{review.quality_score}/10</span><br><b>Risk:</b> {review.risk_level} · {review.language} · {review.file_count} file(s)<br><b>Model:</b> {review.model_name} · {review.model_backend}</div>'''
     summary_md = f'### Review summary\n{review.summary}\n\n**Change intent:** {review.change_intent or "Not confidently inferred."}'
 
     findings = pd.DataFrame([
@@ -149,15 +151,15 @@ def import_rules(file_path, text):
     return state, f'Loaded {len(parsed)} custom historical rules for this session.', preview
 
 
-with gr.Blocks(title='Hoare AI') as demo:
+with gr.Blocks(title='Hoare AI', theme=gr.themes.Soft(), css=CSS) as demo:
     rules_state = gr.State([])
-    gr.HTML('''<div class="hoare-hero"><div class="hoare-kicker">Engineering quality intelligence</div><div class="hoare-title">Hoare AI</div><div class="hoare-sub">AI writes code. Hoare AI decides what deserves to be trusted — using change-aware review, architecture context, validation planning, deterministic quality scoring, and historical engineering memory.</div></div>''')
+    gr.HTML('''<div class="hoare-hero"><div class="hoare-kicker">Engineering quality intelligence</div><div class="hoare-title">Hoare AI</div><div class="hoare-sub">AI writes code. Hoare AI decides what deserves to be trusted — using Qwen3.5-powered change review, architecture context, validation planning, deterministic quality scoring, and historical engineering memory.</div></div>''')
     with gr.Row():
         if IS_HF_SPACE:
             gr.LoginButton(value='Sign in with Hugging Face')
         else:
             gr.Markdown('**Identity:** Cloud Run IAP is supported; set `HOARE_ALLOW_ANONYMOUS=true` only for local demos.')
-        gr.Markdown('**Privacy:** submitted code is analyzed, but raw source is not stored in review history. Secret-like values are redacted before Gemini analysis.')
+        gr.Markdown(f'**Inference:** `{MODEL_STATUS["model"]}` via `{MODEL_STATUS["backend"]}`. **Privacy:** raw source is not stored in review history; secret-like values are redacted before model analysis.')
 
     with gr.Tabs():
         with gr.Tab('Review'):
@@ -209,9 +211,9 @@ with gr.Blocks(title='Hoare AI') as demo:
             rules_preview = gr.Dataframe(interactive=False)
             load.click(import_rules, inputs=[rules_file, rules_text], outputs=[rules_state, status, rules_preview], api_name='rules')
 
-    gr.Markdown('---\n**Hoare AI does not execute submitted code.** Runtime/browser validation should happen in an isolated sandbox or CI environment; this prototype generates the validation plan and risk model safely.')
+    gr.Markdown('---\n**Hoare AI does not execute submitted code.** Runtime/browser validation should happen in an isolated sandbox or CI environment; Hoare AI generates the validation plan and quality-risk model safely.')
 
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', '7860'))
-    demo.queue(default_concurrency_limit=int(os.getenv('HOARE_CONCURRENCY', '4'))).launch(server_name='0.0.0.0', server_port=port, theme=gr.themes.Soft(), css=CSS, max_file_size='2mb')
+    demo.queue(default_concurrency_limit=int(os.getenv('HOARE_CONCURRENCY', '4'))).launch(server_name='0.0.0.0', server_port=port, max_file_size='2mb')
