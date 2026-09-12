@@ -61,3 +61,5 @@ class ReviewResult(BaseModel):
     matched_rules: list[dict]
     file_count: int
     source: str
+    model_backend: str = ''
+    model_name: str = ''
