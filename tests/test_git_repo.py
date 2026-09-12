@@ -45,6 +45,8 @@ def test_collects_staged_index(tmp_path):
 def test_hoareignore_filters_generated_files(tmp_path):
     root = make_repo(tmp_path)
     (root / ".hoareignore").write_text("generated/**\n", encoding="utf-8")
+    git(root, "add", ".hoareignore")
+    git(root, "commit", "-m", "add hoare ignore")
     (root / "generated").mkdir()
     (root / "generated" / "x.py").write_text("bad = True\n", encoding="utf-8")
     with pytest.raises(GitError, match="No reviewable text changes"):
