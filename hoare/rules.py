@@ -17,7 +17,11 @@ class Rule:
 def load_rules(path: str = 'historical_rules.csv') -> list[Rule]:
     p = Path(path)
     if not p.exists():
-        return []
+        packaged = Path(__file__).with_name('default_rules.csv')
+        if packaged.exists():
+            p = packaged
+        else:
+            return []
     with p.open('r', encoding='utf-8-sig', newline='') as f:
         return _parse_rows(csv.DictReader(f))
 
