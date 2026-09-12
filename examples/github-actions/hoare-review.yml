@@ -1,0 +1,44 @@
+name: Hoare AI Review
+
+on:
+  pull_request:
+
+jobs:
+  hoare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Replace this source checkout install with your pinned Hoare package/version.
+      - name: Install Hoare AI
+        run: pip install -e .
+
+      - name: Review pinned PR change
+        env:
+          HOARE_LLM_BACKEND: openai
+          HOARE_LLM_MODEL: Qwen/Qwen3.5-4B
+          HOARE_LLM_BASE_URL: ${{ secrets.HOARE_LLM_BASE_URL }}
+          HOARE_LLM_API_KEY: ${{ secrets.HOARE_LLM_API_KEY }}
+          HOARE_USER_ID: ci:${{ github.repository }}
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          hoare review . \
+            --base "origin/${{ github.base_ref }}" \
+            --compare HEAD \
+            --format sarif \
+            --output hoare.sarif \
+            --fail-below 7.0
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hoare-sarif
+          path: hoare.sarif
