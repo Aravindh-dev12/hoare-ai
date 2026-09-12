@@ -1,0 +1,38 @@
+name: Sync Hoare AI to Hugging Face
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mirror app to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "HF_TOKEN is not configured; skipping Hugging Face sync."
+            exit 0
+          fi
+          git clone "https://Aravindhan11:${HF_TOKEN}@huggingface.co/spaces/Aravindhan11/AI_Code_Terminal" /tmp/hoare-space
+          rsync -av --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='tests' \
+            --exclude='.env' \
+            ./ /tmp/hoare-space/
+          cd /tmp/hoare-space
+          git config user.name "Hoare AI Sync"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No Space changes to publish."
+            exit 0
+          fi
+          git commit -m "Sync Hoare AI from GitHub ${GITHUB_SHA}"
+          git push origin main

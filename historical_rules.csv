@@ -1,0 +1,9 @@
+id,type,description
+1,readability,Avoid single-character variable names in production code because they hurt readability
+2,performance,Cache repeated database lookups inside a request loop when the data does not change
+3,security,Never interpolate raw user input directly into SQL queries; use parameterized queries
+4,reliability,Set explicit timeouts and bounded retries for outbound network calls
+5,security,Do not log credentials tokens passwords or raw authorization headers
+6,maintainability,Prefer small cohesive functions with one responsibility over large multi-purpose functions
+7,testing,Add regression tests for bugs that previously reached production
+8,architecture,Keep domain logic separate from transport and UI concerns
