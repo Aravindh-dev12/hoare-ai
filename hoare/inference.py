@@ -155,7 +155,6 @@ def _load_local_model(cfg: InferenceConfig):
         if _LOCAL_PROCESSOR is not None and _LOCAL_MODEL is not None:
             return _LOCAL_PROCESSOR, _LOCAL_MODEL
         try:
-            import torch
             from transformers import AutoModelForMultimodalLM, AutoProcessor
         except Exception as exc:
             raise RuntimeError(
@@ -168,13 +167,10 @@ def _load_local_model(cfg: InferenceConfig):
             raise RuntimeError(f"HOARE_QWEN_MODEL_PATH does not exist: {cfg.model_path}")
 
         processor = AutoProcessor.from_pretrained(model_ref, trust_remote_code=False)
-        dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else (
-            torch.float16 if torch.cuda.is_available() else torch.float32
-        )
         model = AutoModelForMultimodalLM.from_pretrained(
             model_ref,
             device_map="auto",
-            dtype=dtype,
+            dtype="auto",
             low_cpu_mem_usage=True,
             trust_remote_code=False,
         )
