@@ -102,6 +102,7 @@ def review_code(
     historical_patterns: list[dict[str, Any]],
     language_hint: str = 'Auto',
     source: str = 'paste/upload',
+    review_instructions: str = '',
 ) -> tuple[ReviewResult, str]:
     if not files:
         raise ValueError('Submit code, upload source files, or load a GitHub PR first.')
@@ -112,6 +113,7 @@ def review_code(
     static_findings = run_static_analysis(files)
     code_payload, secret_count = _serialize_code(files)
     status = inference_status()
+    instructions = (review_instructions or '').strip()[:12_000]
 
     prompt = f'''{SYSTEM_GUARD}
 
@@ -119,12 +121,16 @@ TASK:
 Review this {language} submission for a production engineering team.
 1. Explain the change intent.
 2. Group related files into logical review chapters, not one chapter per file.
-3. Find concrete bugs and risks with file/line evidence when possible.
-4. Describe architectural implications and coupling.
-5. Produce focused validation scenarios. Do NOT execute code.
-6. Use historical rules and recurring user patterns only when relevant.
-7. Do not assign a numeric quality score; Hoare AI computes it deterministically.
-8. Do not invent files, line numbers, incidents, tests, or runtime behavior.
+3. Order chapters in the sequence a human should review dependencies.
+4. Find concrete bugs and risks with file/line evidence when possible.
+5. Describe architectural implications, data flow, and coupling.
+6. Produce focused validation scenarios. Do NOT execute code.
+7. Use historical rules and recurring user patterns only when relevant.
+8. Do not assign a numeric quality score; Hoare AI computes it deterministically.
+9. Do not invent files, line numbers, incidents, tests, or runtime behavior.
+
+PROJECT REVIEW GUIDANCE:
+{instructions or 'No additional project-specific guidance.'}
 
 HISTORICAL RULES:
 {json.dumps(matched_rules, ensure_ascii=False)}
