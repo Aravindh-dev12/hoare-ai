@@ -1,0 +1,6 @@
+gradio>=5.35,<7
+google-genai>=2.0.0
+google-cloud-bigquery>=3.44.0
+pydantic>=2.9
+pandas>=2.2
+requests>=2.32
