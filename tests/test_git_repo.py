@@ -51,3 +51,12 @@ def test_hoareignore_filters_generated_files(tmp_path):
     (root / "generated" / "x.py").write_text("bad = True\n", encoding="utf-8")
     with pytest.raises(GitError, match="No reviewable text changes"):
         collect_changes(root, unstaged=True)
+
+
+def test_default_review_captures_unstaged_deletion(tmp_path):
+    root = make_repo(tmp_path)
+    (root / "app.py").unlink()
+    changes = collect_changes(root, base="HEAD")
+    assert changes.mode == "work"
+    assert "app.py" in changes.files
+    assert "deleted file mode" in changes.files["app.py"] or "-value = 1" in changes.files["app.py"]
