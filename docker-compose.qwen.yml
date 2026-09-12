@@ -1,0 +1,39 @@
+services:
+  qwen:
+    image: vllm/vllm-openai:latest
+    runtime: nvidia
+    ipc: host
+    volumes:
+      - ${HOARE_QWEN_MODEL_PATH:?Set HOARE_QWEN_MODEL_PATH}:/models/qwen:ro
+    command:
+      - --model
+      - /models/qwen
+      - --served-model-name
+      - Qwen/Qwen3.5-4B
+      - --language-model-only
+      - --max-model-len
+      - "65536"
+      - --gpu-memory-utilization
+      - "0.90"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+
+  hoare:
+    build: .
+    depends_on:
+      qwen:
+        condition: service_healthy
+    environment:
+      HOARE_LLM_BACKEND: openai
+      HOARE_LLM_MODEL: Qwen/Qwen3.5-4B
+      HOARE_LLM_BASE_URL: http://qwen:8000/v1
+      HOARE_LLM_API_KEY: EMPTY
+      HOARE_ALLOW_ANONYMOUS: "true"
+      HOARE_CONCURRENCY: "2"
+    ports:
+      - "7860:7860"
